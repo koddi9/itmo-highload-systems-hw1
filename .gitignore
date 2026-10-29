@@ -1,5 +1,14 @@
 HELP.md
 target/
+
+### Секреты: в git только .env.example ###
+.env
+.env.*
+!.env.example
+
+### Python ###
+__pycache__/
+*.pyc
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/

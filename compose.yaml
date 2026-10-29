@@ -1,0 +1,118 @@
+name: highload-hw1
+
+x-app: &app
+  build: .
+  image: highload-hw1/items-service:local
+  healthcheck:
+    test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8080/health"]
+    interval: 5s
+    timeout: 3s
+    retries: 24
+  restart: unless-stopped
+
+x-app-env: &app-env
+  FAILURE_RATE: ${FAILURE_RATE:-0.02}
+  LATENCY_MEAN_MS: ${LATENCY_MEAN_MS:-20}
+
+x-grafana-credentials: &grafana-credentials
+  GRAFANA_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+  GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?run cp .env.example .env first}
+
+services:
+  # Два инстанса одного образа имитируют два датацентра.
+  app-1:
+    <<: *app
+    environment:
+      <<: *app-env
+      POD_ID: pod-1
+      DATACENTER: dc-1
+    ports: ["127.0.0.1:8081:8080"]
+
+  app-2:
+    <<: *app
+    environment:
+      <<: *app-env
+      POD_ID: pod-2
+      DATACENTER: dc-2
+    ports: ["127.0.0.1:8082:8080"]
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=2d
+    volumes:
+      - ./prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    ports: ["127.0.0.1:9090:9090"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:9090/-/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+    restart: unless-stopped
+
+  # Без volume: datasource создаётся provisioning'ом, дашборд генерируется при каждом старте.
+  grafana:
+    image: grafana/grafana:12.2.0
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?run cp .env.example .env first}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+    restart: unless-stopped
+
+  # Отрабатывает один раз: читает GET /handlers и загружает дашборд.
+  dashboard-generator:
+    build: ./dashboard-generator
+    image: highload-hw1/dashboard-generator:local
+    environment:
+      <<: *grafana-credentials
+      GRAFANA_URL: http://grafana:3000
+      APP_URLS: http://app-1:8080,http://app-2:8080
+      DATASOURCE_UID: prometheus
+    depends_on:
+      app-1:
+        condition: service_healthy
+      app-2:
+        condition: service_healthy
+      grafana:
+        condition: service_healthy
+    restart: "no"
+
+  # Фоновая нагрузка до остановки стека.
+  load:
+    image: grafana/k6:1.3.0
+    command: ["run", "--quiet", "/scripts/background.js"]
+    environment:
+      TARGETS: http://app-1:8080,http://app-2:8080
+      TARGET_RPS: ${LOAD_TARGET_RPS:-40}
+      RAMP_UP: ${LOAD_RAMP_UP:-3m}
+    volumes:
+      - ./load:/scripts:ro
+    depends_on:
+      app-1:
+        condition: service_healthy
+      app-2:
+        condition: service_healthy
+      dashboard-generator:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
