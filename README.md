@@ -7,6 +7,9 @@
 - генератор дашборда Grafana, который берёт список ручек из работающего сервиса
 - фоновая нагрузка на k6
 
+Ссылка на скринкаст: https://us04web.zoom.us/clips/share/1tv0p-jWR3ercJWd77_JYw 
+(или Яндекс Диск: https://disk.yandex.ru/i/tYuRWcz6yVS-xA)
+
 ## Быстрый старт
 
 Всё поднимается одной командой `docker compose up`.
