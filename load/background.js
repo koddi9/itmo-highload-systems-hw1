@@ -42,7 +42,7 @@ export function setup() {
   for (const base of TARGETS) {
     seeded[base] = [];
     for (let i = 0; i < SEED_ITEMS; i++) {
-      const res = createItem(base);
+      const res = createItem(base, `seed-${i}`);
       if (res.status === 201) {
         seeded[base].push(res.json('id'));
       }
@@ -63,7 +63,7 @@ export default function (seeded) {
   const roll = Math.random();
 
   if (roll < CREATE_SHARE) {
-    const res = createItem(base);
+    const res = createItem(base, `item-${__VU}-${__ITER}`);
     if (res.status === 201) {
       remember(ids, res.json('id'));
     }
@@ -77,8 +77,8 @@ export default function (seeded) {
   }
 }
 
-function createItem(base) {
-  const body = JSON.stringify({ name: `item-${__VU}-${__ITER}`, description: 'created by k6' });
+function createItem(base, name) {
+  const body = JSON.stringify({ name, description: 'created by k6' });
   return http.post(`${base}/items`, body, params('POST /items'));
 }
 
